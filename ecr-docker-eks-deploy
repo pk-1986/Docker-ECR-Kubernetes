@@ -1,0 +1,130 @@
+1. Create Dockerfiles for PostgreSQL and Tomcat
+We will create Dockerfiles for PostgreSQL and Tomcat.
+
+PostgreSQL Dockerfile (Dockerfile-postgres)
+dockerfile
+Copy
+Edit
+FROM postgres:latest
+ENV POSTGRES_USER=myuser
+ENV POSTGRES_PASSWORD=mypassword
+ENV POSTGRES_DB=mydatabase
+EXPOSE 5432
+Tomcat Dockerfile (Dockerfile-tomcat)
+dockerfile
+Copy
+Edit
+FROM tomcat:latest
+COPY ./webapp.war /usr/local/tomcat/webapps/
+EXPOSE 8080
+2. Build and Push Images to AWS ECR
+Before pushing to AWS ECR, make sure AWS CLI is configured properly.
+
+Login to AWS ECR
+sh
+Copy
+Edit
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
+Create AWS ECR Repositories
+sh
+Copy
+Edit
+aws ecr create-repository --repository-name postgres-repo
+aws ecr create-repository --repository-name tomcat-repo
+Build and Tag Docker Images
+sh
+Copy
+Edit
+docker build -t postgres-image -f Dockerfile-postgres .
+docker build -t tomcat-image -f Dockerfile-tomcat .
+Tag and Push Images
+sh
+Copy
+Edit
+docker tag postgres-image <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/postgres-repo
+docker tag tomcat-image <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/tomcat-repo
+
+docker push <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/postgres-repo
+docker push <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/tomcat-repo
+3. Deploy to AWS EKS
+Create Deployment YAML (deployment.yaml)
+yaml
+Copy
+Edit
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+spec:
+  replicas: 10
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/postgres-repo
+          ports:
+            - containerPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tomcat-deployment
+spec:
+  replicas: 20
+  selector:
+    matchLabels:
+      app: tomcat
+  template:
+    metadata:
+      labels:
+        app: tomcat
+    spec:
+      containers:
+        - name: tomcat
+          image: <AWS_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/tomcat-repo
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomcat-service
+spec:
+  selector:
+    app: tomcat
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+4. Apply Kubernetes Configuration
+Update kubeconfig and Deploy
+sh
+Copy
+Edit
+aws eks update-kubeconfig --region us-east-1 --name my-cluster
+kubectl apply -f deployment.yaml
+Verify Deployments
+sh
+Copy
+Edit
+kubectl get pods
+kubectl get deployments
+kubectl get services
